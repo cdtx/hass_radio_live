@@ -1,0 +1,4 @@
+radio_current_song:
+  module: apps
+  class: RadioCurrentSong
+  api_key: !secret radiofrance_api_key
