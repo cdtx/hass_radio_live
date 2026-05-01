@@ -1,120 +1,60 @@
 from appdaemon.adapi import ADAPI
 from appdaemon.plugins.hass import Hass
 
-import requests
-
-payload = '''{
-  live(station: FIP) {
-	show {
-	  id
-	  ... on DiffusionStep {
-		id
-		diffusion {
-		  id
-		  title
-		  standFirst
-		  url
-		  published_date
-		  podcastEpisode {
-			id
-			title
-			url
-			playerUrl
-			created
-			duration
-		  }
-		}
-	  }
-	  ... on BlankStep {
-		id
-		title
-	  }
-	}
-	program {
-	  id
-	  ... on DiffusionStep {
-		id
-		diffusion {
-		  id
-		  title
-		  standFirst
-		  url
-		  published_date
-		  podcastEpisode {
-			id
-			title
-			url
-			playerUrl
-			created
-			duration
-		  }
-		}
-	  }
-	  ... on BlankStep {
-		id
-		title
-	  }
-	}
-	song {
-	  id
-	  start
-	  end
-	  track {
-		id
-		title
-        authors
-        composers
-        mainArtists
-        performers
-        productionDate
-	  }
-	}
-  }
-}'''
-
+import radiofrance
 
 class RadioCurrentSong(Hass):
+    CRAWLERS = {
+        'FIP': radiofrance.FIPCrawler,
+    }
+
     def initialize(self):
+        self.init_done = False
         self.api_key = self.args['api_key']
-        current_radio = self.get_entity('sensor.current_radio')
-        if current_radio.get_state() == 'FIP':
-            self.push_fip_song()
-        current_radio.listen_state(self.current_radio_changed_cb)
+        self.current_crawler = None
+
+        self.listen_state(self.current_radio_changed_cb, 'sensor.current_radio')
+        self.try_init()
+        # current_radio = self.get_entity('sensor.current_radio')
+        # self.update_current_crawler(current_radio.state)
         # self.call_service(
         #     'notify/mobile_app_oneplus_a6010',
         #     title='TITLE',
         #     message='From AppDaemon !!',
         # )
-        # self.set_state(
-        #     "sensor.test_appdaemon",
-        #     state="World",
-        #     attributes={
-        #         "friendly_name": "Test AppDaemon"
-        #     }
-        # )
+
+    def try_init(self, **kwargs):
+        if self.init_done:
+            return
+
+        current_radio = self.get_state('sensor.current_radio')
+
+        if current_radio not in (None, "unknown", "unavailable"):
+            self.init_done = True
+            self.update_current_crawler(current_radio)
+        else:
+            self.run_in(self.try_init, 1)
+
+
     def current_radio_changed_cb(self, entity, attribute, old, new, **kwargs):
         self.log(f'Current radio changed from {old} to {new}')
-        if new == 'FIP':
-            self.push_fip_song()
+        self.update_current_crawler(new)
 
-    def push_fip_song(self):
-        fip_current = self.get_entity('sensor.fipcurrent')
-        ret = requests.post('https://openapi.radiofrance.fr/v1/graphql/', headers={'x-token': self.api_key}, json={'query': payload}, verify=False)
-        if ret.ok:
-            try:
-                performers = ' / '.join(ret.json()['data']['live']['song']['track']['performers'])
-            except:
-                performers = 'Error'
+    def update_current_crawler(self, current_radio):
+        if self.current_crawler:
+            self.current_crawler.stop()
 
-            try:
-                title = ret.json()['data']['live']['song']['track']['title']
-            except:
-                title = 'Error'
+        crawler_class = self.CRAWLERS.get(current_radio)
 
+        if crawler_class:
+            self.current_crawler = crawler_class(
+                homeassistant=self,
+                api_key=self.api_key,
+                output_entities={
+                    'current':'sensor.fipcurrent',
+                },
+            )
+            self.current_crawler.start()
         else:
-            performers = 'Error'
-            title = 'Error'
-
-        fip_current.set_state(f'{performers}\n{title}')
-
+            self.current_crawler = None
 
