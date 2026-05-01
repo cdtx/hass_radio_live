@@ -1,4 +1,5 @@
 import requests
+import time
 
 current_song_payload = '''{{
   live(station: {radio}) {{
@@ -75,13 +76,23 @@ class RadioFranceCrawler():
         self.api_key = api_key
         self.output_entities = output_entities
 
+        self.previous = {
+            'artist': 'Unknown',
+            'title': 'Unknown',
+        }
+        self.current = {
+            'artist': 'Unknown',
+            'title': 'Unknown',
+        }
+
     def start(self):
         self.update()
 
     def stop(self):
         pass
 
-    def update(self):
+    def update(self, **kwargs):
+        self.previous = self.current.copy()
         ret = requests.post(
             'https://openapi.radiofrance.fr/v1/graphql/',
             headers={'x-token': self.api_key},
@@ -89,27 +100,50 @@ class RadioFranceCrawler():
         )
         if ret.ok:
             try:
-                performers = ' / '.join(ret.json()['data']['live']['song']['track']['performers'])
+                self.current['artist'] = ' / '.join(ret.json()['data']['live']['song']['track']['performers'])
             except:
-                performers = 'Error'
+                self.homeassistant.log('Failed to compute performers', level='WARNING')
+                self.current['artist'] = 'Error'
 
             try:
-                title = ret.json()['data']['live']['song']['track']['title']
+                track = ret.json()['data']['live']['song']['track']
+                self.current['title'] = f"{track['title']} ({track['productionDate']})"
             except:
-                title = 'Error'
+                self.homeassistant.log('Failed to compute title', level='WARNING')
+                self.current['title'] = 'Error'
+
+            try:
+                # Compute time to next update
+                now = int(time.time())
+                start = ret.json()['data']['live']['song']['start']
+                end = ret.json()['data']['live']['song']['end']
+                self.homeassistant.log(f'now: {now}, start: {start}, end:{end}')
+
+                # Looks like the server in 40s late with me...
+                next_song_in = end - now + 40
+            except:
+                self.homeassistant.log('Failed to compute time to next fetch', level='WARNING')
+                next_song_in = 120
 
         else:
-            performers = 'Error'
-            title = 'Error'
+            self.current['artist'] = 'Error'
+            self.current['title'] = 'Error'
+            next_song_in = 120
 
-        self.homeassistant.log(f'performers: {performers}')
-        self.homeassistant.log(f'title: {title}')
-        if 'current' in self.output_entities:
-            entity_current = self.homeassistant.get_entity(self.output_entities['current'])
-            entity_current.set_state(f'{performers}\n{title}')
+        self.homeassistant.log(f'Artist: {self.current["artist"]}')
+        self.homeassistant.log(f'Title: {self.current["title"]}')
+        self.homeassistant.log(f'next_in: {next_song_in}')
 
-            self.homeassistant.set_state('sensor.radio_live', 'lol', attributes={'current_artist': f'{performers}', 'current_title': f'{title}'})
-            # {{ states_attr('sensor.radio_live', 'current_artist') }}
+        self.homeassistant.set_state('sensor.radio_live', '', attributes={
+                'current_artist': self.current['artist'],
+                'current_title': self.current['title'],
+                'previous_artist': self.previous['artist'],
+                'previous_title': self.previous['title'],
+            }
+        )
+
+        self.homeassistant.run_in(self.update, next_song_in)
+
 
 class FIPCrawler(RadioFranceCrawler):
     RADIO = 'FIP'
