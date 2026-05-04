@@ -100,14 +100,25 @@ class RadioFranceCrawler():
         )
         if ret.ok:
             try:
-                self.current['artist'] = ' / '.join(ret.json()['data']['live']['song']['track']['performers'])
+                live = ret.json()['data']['live']
+                if 'song' in live:
+                    self.current['artist'] = ' / '.join(live['song']['track']['performers'])
+                else:
+                    self.current['artist'] = 'Show'
             except:
                 self.homeassistant.log('Failed to compute performers', level='WARNING')
                 self.current['artist'] = 'Error'
 
             try:
-                track = ret.json()['data']['live']['song']['track']
-                self.current['title'] = f"{track['title']} ({track['productionDate']})"
+                live = ret.json()['data']['live']
+                if 'song' in live:
+                    track = live['song']['track']
+                    self.current['title'] = f"{track['title']} ({track['productionDate']})"
+                elif 'show' in live:
+                    show = live['show']['diffusion']['title']
+                    self.current['title'] = show
+                else:
+                    self.current['title'] = 'Unknown'
             except:
                 self.homeassistant.log('Failed to compute title', level='WARNING')
                 self.current['title'] = 'Error'
