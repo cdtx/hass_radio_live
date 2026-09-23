@@ -130,7 +130,7 @@ class RadioFranceCrawler():
                 end = ret.json()['data']['live']['song']['end']
                 self.homeassistant.log(f'now: {now}, start: {start}, end:{end}')
 
-                # Looks like the server in 40s late with me...
+                # Looks like the server is 40s late with me...
                 next_song_in = end - now + 40
             except:
                 self.homeassistant.log('Failed to compute time to next fetch', level='WARNING')
@@ -158,4 +158,7 @@ class RadioFranceCrawler():
 
 class FIPCrawler(RadioFranceCrawler):
     RADIO = 'FIP'
+
+class FIPMondeCrawler(RadioFranceCrawler):
+    RADIO = 'FIP_WORLD'
 
