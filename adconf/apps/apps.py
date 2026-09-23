@@ -6,6 +6,7 @@ import radiofrance
 class RadioCurrentSong(Hass):
     CRAWLERS = {
         'FIP': radiofrance.FIPCrawler,
+        'FIPMONDE': radiofrance.FIPMondeCrawler,
     }
 
     def initialize(self):
